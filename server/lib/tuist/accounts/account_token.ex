@@ -62,6 +62,7 @@ defmodule Tuist.Accounts.AccountToken do
     "account:registry:write",
     "account:runners:read",
     "account:runners:write",
+    "account:sandboxes:use",
     "project:previews:read",
     "project:previews:write",
     "project:admin:read",

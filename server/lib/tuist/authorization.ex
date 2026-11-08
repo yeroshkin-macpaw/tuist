@@ -611,6 +611,12 @@ defmodule Tuist.Authorization do
 
       desc("Allows the admin of an account to create sandboxes through the API and run commands in them.")
       allow([:authenticated_as_user, user_role: :admin])
+
+      desc(
+        "Allows an account token with account:sandboxes:use scope to do what a user of the account can: create sandboxes through the API and run commands in them, except in sandboxes that serve an agent environment, an Amp integration or remote execution."
+      )
+
+      allow([:authenticated_as_account, :accounts_match, scopes_permit: "account:sandboxes:use"])
     end
   end
 

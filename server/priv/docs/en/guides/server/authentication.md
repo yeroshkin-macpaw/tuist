@@ -229,6 +229,7 @@ The command accepts the following options:
 | `account:registry:write` | Publish to the Swift package registry |
 | `account:runners:read` | Read runner jobs, workflows, profiles, and volumes |
 | `account:runners:write` | Manage runner profiles and delete runner volumes |
+| `account:sandboxes:use` | Create sandboxes and run commands in them, like a member of the account |
 | `project:previews:read` | Download previews |
 | `project:previews:write` | Upload previews |
 | `project:admin:read` | Read projects and their settings |

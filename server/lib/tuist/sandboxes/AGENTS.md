@@ -358,7 +358,8 @@ socket, the poller and the caller share a replica:
   `/api/accounts/:account_handle/sandboxes` (agent environments,
   including `PATCH agent-environments/:id` for the API key, model and
   system prompt; sandboxes, exec, commands, pause/resume/delete). Members
-  (`:sandboxes_use`) reach sandboxes, exec and commands, but only on
+  and account tokens with `account:sandboxes:use` (`:sandboxes_use`) reach
+  sandboxes, exec and commands, but only on
   sandboxes without an agent environment, Amp integration, provider
   environment or remote-execution purpose; everything else is admin-only.
 - Dashboard: `TuistWeb.SandboxesLive` (`/:account_handle/sandboxes`),
