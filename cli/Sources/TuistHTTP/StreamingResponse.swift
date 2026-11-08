@@ -4,8 +4,8 @@ import Foundation
 #endif
 
 /// A response whose body arrives as the server sends it, for long-lived responses such as ND-JSON log streams. The
-/// shared session's 90-second resource timeout would cut those off, so each stream gets a session that allows an hour
-/// (the request timeout still ends a stream that goes quiet), invalidated when the stream ends.
+/// shared session's 90-second resource timeout would cut those off, so streams use a session that allows an hour
+/// (the request timeout still ends a stream that goes quiet).
 enum StreamingResponse {
     private static let resourceTimeout: TimeInterval = 3600
 
@@ -16,23 +16,22 @@ enum StreamingResponse {
         let configuration = base.configuration
         configuration.timeoutIntervalForResource = resourceTimeout
         #if canImport(FoundationNetworking)
-            // FoundationNetworking has no `bytes(for:)`; a data delegate hands the chunks over as they arrive.
-            let delegate = Delegate()
-            let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
-            let task = session.dataTask(with: request)
-            delegate.chunks.onTermination = { _ in
-                task.cancel()
-                session.finishTasksAndInvalidate()
-            }
+            // FoundationNetworking has no `bytes(for:)`; a data delegate hands the chunks over as they arrive. It also
+            // crashes when a session is invalidated after its task ends ("_MultiHandle deallocated with non-zero
+            // retain count"), so every stream shares one session that is never invalidated.
+            let stream = TaskStream()
+            let task = Router.shared.session(configuration: configuration).dataTask(with: request)
+            Router.shared.register(task, stream)
+            stream.chunks.onTermination = { _ in task.cancel() }
             let response = try await withTaskCancellationHandler {
                 try await withCheckedThrowingContinuation { continuation in
-                    delegate.setResponseContinuation(continuation)
+                    stream.setResponseContinuation(continuation)
                     task.resume()
                 }
             } onCancel: {
                 task.cancel()
             }
-            return (response, delegate.stream)
+            return (response, stream.stream)
         #else
             let session = URLSession.tuist(configuration: configuration)
             let (bytes, response) = try await session.bytes(for: request)
@@ -65,18 +64,32 @@ enum StreamingResponse {
     }
 
     #if canImport(FoundationNetworking)
-        private final class Delegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+        /// One stream's response and chunks.
+        private final class TaskStream: @unchecked Sendable {
             let stream: AsyncThrowingStream<ArraySlice<UInt8>, any Error>
             let chunks: AsyncThrowingStream<ArraySlice<UInt8>, any Error>.Continuation
             private let lock = NSLock()
             private var responseContinuation: CheckedContinuation<URLResponse, any Error>?
 
-            override init() {
+            init() {
                 (stream, chunks) = AsyncThrowingStream.makeStream()
             }
 
             func setResponseContinuation(_ continuation: CheckedContinuation<URLResponse, any Error>) {
                 lock.withLock { responseContinuation = continuation }
+            }
+
+            func respond(_ response: URLResponse) {
+                takeResponseContinuation()?.resume(returning: response)
+            }
+
+            func complete(_ error: (any Error)?) {
+                if let error {
+                    takeResponseContinuation()?.resume(throwing: error)
+                    chunks.finish(throwing: error)
+                } else {
+                    chunks.finish()
+                }
             }
 
             private func takeResponseContinuation() -> CheckedContinuation<URLResponse, any Error>? {
@@ -85,29 +98,49 @@ enum StreamingResponse {
                     return responseContinuation
                 }
             }
+        }
+
+        /// The delegate of the shared streaming session, handing each task's events to that task's stream.
+        private final class Router: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+            static let shared = Router()
+            private let lock = NSLock()
+            private var session: URLSession?
+            private var streams: [Int: TaskStream] = [:]
+
+            /// The shared session, created with the first stream's configuration.
+            func session(configuration: URLSessionConfiguration) -> URLSession {
+                lock.withLock {
+                    if let session { return session }
+                    let created = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+                    session = created
+                    return created
+                }
+            }
+
+            func register(_ task: URLSessionTask, _ stream: TaskStream) {
+                lock.withLock { streams[task.taskIdentifier] = stream }
+            }
+
+            private func stream(for task: URLSessionTask, removing: Bool = false) -> TaskStream? {
+                lock.withLock { removing ? streams.removeValue(forKey: task.taskIdentifier) : streams[task.taskIdentifier] }
+            }
 
             func urlSession(
                 _: URLSession,
-                dataTask _: URLSessionDataTask,
+                dataTask: URLSessionDataTask,
                 didReceive response: URLResponse,
                 completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
             ) {
-                takeResponseContinuation()?.resume(returning: response)
+                stream(for: dataTask)?.respond(response)
                 completionHandler(.allow)
             }
 
-            func urlSession(_: URLSession, dataTask _: URLSessionDataTask, didReceive data: Data) {
-                chunks.yield(ArraySlice(data))
+            func urlSession(_: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+                stream(for: dataTask)?.chunks.yield(ArraySlice(data))
             }
 
-            func urlSession(_ session: URLSession, task _: URLSessionTask, didCompleteWithError error: (any Error)?) {
-                if let error {
-                    takeResponseContinuation()?.resume(throwing: error)
-                    chunks.finish(throwing: error)
-                } else {
-                    chunks.finish()
-                }
-                session.finishTasksAndInvalidate()
+            func urlSession(_: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
+                stream(for: task, removing: true)?.complete(error)
             }
         }
     #endif
