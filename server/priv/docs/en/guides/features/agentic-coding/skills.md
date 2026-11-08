@@ -21,6 +21,7 @@ If your coding agent supports plugins, the <.localized_link href="/guides/featur
 | `fix-flaky-tests` | Fixes flaky tests by analyzing failure patterns from Tuist test insights, identifying root causes, and applying targeted corrections. |
 | `debug-generated-project` | Debugs issues with Tuist-generated projects by reproducing the scenario, building Tuist from source when needed, and triaging whether it is a bug, misconfiguration, or something that needs team input. |
 | `compare-gradle-builds` | Compares two Gradle build runs to identify duration regressions, cache changes, and task outcome differences. Can be invoked with build IDs, dashboard URLs, or branch names. |
+| `remote-mac` | Builds, tests and runs Apple-platform code on a remote Tuist macOS sandbox from a machine that is not a Mac, such as a Linux cloud agent: mirrors the worktree, streams `xcodebuild` output and copies results back. |
 
 ## Installation {#installation}
 
