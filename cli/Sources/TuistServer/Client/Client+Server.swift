@@ -55,13 +55,14 @@ extension Client {
     }
 
     /// Tuist client for authenticated sessions
+    /// With `streaming`, response bodies arrive as the server sends them; see `TuistURLSessionTransport`.
     public static func authenticated(
         serverURL: URL, authenticationURL: URL? = nil, networkTrustedReports: Bool = false,
-        networkTrustedPublishing: Bool = false
+        networkTrustedPublishing: Bool = false, streaming: Bool = false
     ) -> Client {
         .init(
             serverURL: serverURL,
-            transport: TuistURLSessionTransport(),
+            transport: TuistURLSessionTransport(streaming: streaming),
             middlewares: HARRecordingMiddlewareFactory.middlewares() + [
                 serverRetryMiddleware,
                 RequestIdMiddleware(),

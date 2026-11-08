@@ -1,14 +1,20 @@
 import ArgumentParser
 import Foundation
 import Noora
+import Path
 import TuistConfigLoader
 import TuistEnvironment
 import TuistHTTP
+import TuistProcess
 import TuistServer
 
 enum SandboxCommandError: LocalizedError, Equatable {
     case missingAccount
     case commandKilled
+    case lostTrack(String)
+    case commandEnded(String)
+    case stepFailed(String, String)
+    case notAGitRepository(String)
 
     var errorDescription: String? {
         switch self {
@@ -16,6 +22,15 @@ enum SandboxCommandError: LocalizedError, Equatable {
             return "Pass --account or configure a project full handle."
         case .commandKilled:
             return "The command was killed before it exited."
+        case let .lostTrack(reason):
+            return "Lost track of the command's output: \(reason) The command may still be running in the sandbox."
+        case let .commandEnded(status):
+            return "The command ended without an exit code (\(status))."
+        case let .stepFailed(step, output):
+            let output = output.trimmingCharacters(in: .whitespacesAndNewlines)
+            return output.isEmpty ? "\(step) failed." : "\(step) failed:\n\(output.suffix(4000))"
+        case let .notAGitRepository(path):
+            return "\(path) is not in a Git repository. Sync mirrors a Git worktree."
         }
     }
 }
@@ -27,17 +42,20 @@ struct SandboxCommandService {
     private let serverEnvironmentService: ServerEnvironmentServicing
     private let fullHandleService: FullHandleServicing
     private let sandboxesService: SandboxesServicing
+    private let commandRunner: CommandRunning
 
     init(
         configLoader: ConfigLoading = ConfigLoader(),
         serverEnvironmentService: ServerEnvironmentServicing = ServerEnvironmentService(),
         fullHandleService: FullHandleServicing = FullHandleService(),
-        sandboxesService: SandboxesServicing = SandboxesService()
+        sandboxesService: SandboxesServicing = SandboxesService(),
+        commandRunner: CommandRunning = CommandRunner()
     ) {
         self.configLoader = configLoader
         self.serverEnvironmentService = serverEnvironmentService
         self.fullHandleService = fullHandleService
         self.sandboxesService = sandboxesService
+        self.commandRunner = commandRunner
     }
 
     func list(
@@ -153,6 +171,134 @@ struct SandboxCommandService {
         case 0?: return
         case let exitCode?: throw ExitCode(Int32(clamping: exitCode))
         case nil: throw SandboxCommandError.commandKilled
+        }
+    }
+
+    /// Streams the command's output as it runs, however long that is, and exits with its status. An interrupt
+    /// cancels the command in the sandbox.
+    func run(
+        options: SandboxOptions.Values,
+        sandboxID: String,
+        command: String,
+        cwd: String?,
+        environment: [String: String],
+        timeoutMs: Int?
+    ) async throws {
+        let remote = try await remote(options, sandboxID: sandboxID)
+        let started = try await remote.start(command, cwd: cwd, environment: environment, timeoutMs: timeoutMs)
+        let signals = Self.onInterrupt { try? await remote.cancel(started.id) }
+        defer { signals.forEach { $0.cancel() } }
+        let exit = try await remote.follow(started.id) { isStandardError, data in
+            (isStandardError ? FileHandle.standardError : FileHandle.standardOutput).write(Data(data.utf8))
+        }
+        switch (exit.status, exit.exitCode) {
+        case (_, 0?): return
+        case let (_, exitCode?): throw ExitCode(Int32(clamping: exitCode))
+        case ("timed_out", nil):
+            Self.note("The command timed out.")
+            throw ExitCode(124)
+        case ("cancelled", nil): throw ExitCode(130)
+        case let (status, nil): throw SandboxCommandError.commandEnded(status)
+        }
+    }
+
+    /// Mirrors the Git worktree at `options.path` (default: the working directory) into the sandbox.
+    func sync(options: SandboxOptions.Values, sandboxID: String, destination: String?) async throws {
+        let directory = try await Environment.current.pathRelativeToWorkingDirectory(options.path)
+        let topLevel = try? await commandRunner.run(
+            arguments: ["git", "-C", directory.pathString, "rev-parse", "--show-toplevel"]
+        ).concatenatedString(including: [.standardOutput]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let topLevel, let repository = try? AbsolutePath(validating: topLevel) else {
+            throw SandboxCommandError.notAGitRepository(directory.pathString)
+        }
+        let remote = try await remote(options, sandboxID: sandboxID)
+        let interactive = isatty(STDOUT_FILENO) == 1
+        let result = try await step("Syncing the worktree...", done: "Worktree synced", options: options, show: interactive) {
+            try await SandboxSync(remote: remote, commandRunner: commandRunner).sync(
+                repository: repository,
+                destination: destination
+            )
+        }
+        try output(result, options: options) { result in
+            let size = ByteCountFormatter.string(fromByteCount: Int64(result.patchBytes), countStyle: .file)
+            return "Synced \(size) of changes against \(result.base.prefix(12)) to \(result.root)."
+        }
+    }
+
+    /// Copies a file or directory out of the sandbox into `outputDirectory` (default: the working directory).
+    func download(options: SandboxOptions.Values, sandboxID: String, remotePath: String, outputDirectory: String?)
+        async throws
+    {
+        let output = try await Environment.current.pathRelativeToWorkingDirectory(outputDirectory)
+        let remote = try await remote(options, sandboxID: sandboxID)
+        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("tuist-sandbox-download-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let archive = scratch.appendingPathComponent("download.tar.gz")
+        FileManager.default.createFile(atPath: archive.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: archive)
+        defer { try? handle.close() }
+
+        let started = try await remote.start(
+            #"set -eo pipefail; cd "$(dirname "$TUIST_PATH")"; tar -czf - "$(basename "$TUIST_PATH")" | base64"#,
+            environment: ["TUIST_PATH": remotePath],
+            timeoutMs: 60 * 60 * 1000
+        )
+        var decoder = Base64StreamDecoder()
+        var stderr = ""
+        let exit = try await remote.follow(started.id) { isStandardError, data in
+            if isStandardError { stderr += data } else { try handle.write(contentsOf: decoder.decode(data)) }
+        }
+        guard exit.exitCode == 0 else {
+            throw SandboxCommandError.stepFailed("Downloading \(remotePath)", stderr)
+        }
+        try handle.write(contentsOf: decoder.finish())
+        try handle.close()
+        try FileManager.default.createDirectory(atPath: output.pathString, withIntermediateDirectories: true)
+        try await commandRunner.run(arguments: ["tar", "-xzf", archive.path, "-C", output.pathString]).awaitCompletion()
+        if options.json {
+            try Noora.current
+                .json(SandboxDownloaded(path: output.appending(component: (remotePath as NSString).lastPathComponent).pathString))
+        } else {
+            Noora.current.passthrough("Downloaded \(remotePath) into \(output.pathString).\n")
+        }
+    }
+
+    private struct SandboxDownloaded: Codable {
+        let path: String
+    }
+
+    private func remote(_ options: SandboxOptions.Values, sandboxID: String) async throws -> SandboxRemote {
+        let (accountHandle, serverURL) = try await resolve(options)
+        var remote = SandboxRemote(
+            accountHandle: accountHandle,
+            serverURL: serverURL,
+            sandboxID: sandboxID,
+            sandboxesService: sandboxesService
+        )
+        remote.onWait = { Self.note($0) }
+        return remote
+    }
+
+    /// Progress notes go to stderr, so they never mix with a command's output on stdout.
+    private static func note(_ message: String) {
+        FileHandle.standardError.write(Data("tuist: \(message)\n".utf8))
+    }
+
+    /// Runs `cancel` on SIGINT or SIGTERM, then exits as the signal would have.
+    private static func onInterrupt(_ cancel: @escaping @Sendable () async -> Void) -> [any DispatchSourceSignal] {
+        [SIGINT, SIGTERM].map { signalNumber in
+            signal(signalNumber, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: signalNumber, queue: .global())
+            source.setEventHandler {
+                Task {
+                    await cancel()
+                    exit(128 + signalNumber)
+                }
+            }
+            source.setCancelHandler { signal(signalNumber, SIG_DFL) }
+            source.resume()
+            return source
         }
     }
 
