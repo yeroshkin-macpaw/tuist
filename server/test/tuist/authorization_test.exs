@@ -889,20 +889,20 @@ defmodule Tuist.AuthorizationTest do
     end
   end
 
-  test "can.use.account.sandboxes when an account token has the sandboxes use scope for that account" do
+  test "can.use.account.sandboxes when an account token has the sandboxes write scope for that account" do
     account = AccountsFixtures.organization_fixture(preload: [:account]).account
     other_account = AccountsFixtures.organization_fixture(preload: [:account]).account
-    subject = %AuthenticatedAccount{account: account, scopes: ["account:sandboxes:use"]}
+    subject = %AuthenticatedAccount{account: account, scopes: ["account:sandboxes:write"]}
 
-    assert Authorization.authorize(:sandboxes_use, subject, account) == :ok
-    assert Authorization.authorize(:sandboxes_use, subject, other_account) == {:error, :forbidden}
+    assert Authorization.authorize(:sandboxes_write, subject, account) == :ok
+    assert Authorization.authorize(:sandboxes_write, subject, other_account) == {:error, :forbidden}
 
     for action <- [:sandboxes_read, :sandboxes_update, :account_update] do
       assert Authorization.authorize(action, subject, account) == {:error, :forbidden}
     end
 
     for scopes <- [["account:runners:write"], ["ci"], ["mcp"]] do
-      assert Authorization.authorize(:sandboxes_use, %{subject | scopes: scopes}, account) == {:error, :forbidden}
+      assert Authorization.authorize(:sandboxes_write, %{subject | scopes: scopes}, account) == {:error, :forbidden}
     end
   end
 

@@ -3454,7 +3454,7 @@ msgstr ""
 
 #: lib/tuist_web/live/account_token_helpers.ex:155
 #, elixir-autogen, elixir-format
-msgid "Sandboxes use"
+msgid "Sandboxes write"
 msgstr ""
 
 #: lib/tuist_web/live/billing_live.ex:226

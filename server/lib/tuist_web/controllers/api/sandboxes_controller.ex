@@ -19,8 +19,8 @@ defmodule TuistWeb.API.SandboxesController do
     render_error: TuistWeb.RenderAPIErrorPlug
   )
 
-  # Members, and account tokens with `account:sandboxes:use`, create
-  # sandboxes and run commands in them (`:sandboxes_use`). Sandboxes that
+  # Members, and account tokens with `account:sandboxes:write`, create
+  # sandboxes and run commands in them (`:sandboxes_write`). Sandboxes that
   # serve an agent environment, an Amp integration or remote execution hold
   # credentials or other people's work, so only admins reach
   # those, and everything else (agent environments, Orb dispatch, analytics,
@@ -41,7 +41,7 @@ defmodule TuistWeb.API.SandboxesController do
     :delete
   ]
 
-  plug AuthorizationPlug, {:account, :sandboxes, :use} when action in @member_actions
+  plug AuthorizationPlug, {:account, :sandboxes, :write} when action in @member_actions
   plug AuthorizationPlug, {:account, :account, :update} when action not in @member_actions
   plug(TuistWeb.Plugs.RequireSandboxesPlug)
   plug :require_member_sandbox when action in @member_actions

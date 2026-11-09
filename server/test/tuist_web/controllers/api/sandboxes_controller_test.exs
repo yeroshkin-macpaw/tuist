@@ -333,7 +333,7 @@ defmodule TuistWeb.API.SandboxesControllerTest do
       assert response["message"] =~ "not authorized"
     end
 
-    test "forbids an account token without the sandboxes use scope", %{account: account} do
+    test "forbids an account token without the sandboxes write scope", %{account: account} do
       sandbox = sandbox_fixture(account: account, state: :running, node_name: "node-a")
       reject(&Nodes.call/4)
 
@@ -353,7 +353,7 @@ defmodule TuistWeb.API.SandboxesControllerTest do
       other_account = AccountsFixtures.organization_fixture(preload: [:account]).account
       sandbox = sandbox_fixture(account: account, state: :running, node_name: "node-a")
       reject(&Nodes.call/4)
-      conn = token_conn(other_account, ["account:sandboxes:use"])
+      conn = token_conn(other_account, ["account:sandboxes:write"])
 
       conn |> get(~p"/api/accounts/#{account.name}/sandboxes/#{sandbox.id}") |> json_response(:forbidden)
       conn |> post(~p"/api/accounts/#{account.name}/sandboxes", %{}) |> json_response(:forbidden)
@@ -688,10 +688,10 @@ defmodule TuistWeb.API.SandboxesControllerTest do
       |> json_response(:forbidden)
     end
 
-    test "an account token with the sandboxes use scope creates, runs commands in and deletes a sandbox", %{
+    test "an account token with the sandboxes write scope creates, runs commands in and deletes a sandbox", %{
       account: account
     } do
-      conn = token_conn(account, ["account:sandboxes:use"])
+      conn = token_conn(account, ["account:sandboxes:write"])
       stub(Capacity, :place, fn %{template: "default"} -> {:ok, "node-a"} end)
       expect(Nodes, :call, fn "node-a", "create", _args, _opts -> {:ok, %{"template_tag" => "sha-1"}} end)
 
@@ -728,10 +728,10 @@ defmodule TuistWeb.API.SandboxesControllerTest do
       assert Repo.get(Sandbox, id) == nil
     end
 
-    test "an account token with the sandboxes use scope cannot use an agent's sandbox or admin-only routes", %{
+    test "an account token with the sandboxes write scope cannot use an agent's sandbox or admin-only routes", %{
       account: account
     } do
-      conn = token_conn(account, ["account:sandboxes:use"])
+      conn = token_conn(account, ["account:sandboxes:write"])
       environment = agent_environment_fixture(account: account)
 
       sandbox =
