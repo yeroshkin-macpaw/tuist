@@ -33,7 +33,7 @@ ${CLAUDE_SKILL_DIR}/scripts/create-mac.sh "${CLAUDE_SESSION_ID}" --account <hand
 
 The script passes its options to `tuist sandbox create --platform macos --json`. In Claude Code, it also records the Mac so it is deleted when the session ends. Elsewhere the session ID is empty and nothing is recorded.
 
-Before every command, mirror the worktree. Sync is one-way: edit files locally, not on the Mac, because the next sync overwrites the Mac's copies of tracked files. Unpushed commits and uncommitted changes are included, and private repositories work.
+Before every command, mirror the worktree. Sync copies the files Git does not ignore, committed or not, and needs no Git access on the Mac. It is one-way: edit files locally, not on the Mac, because the next sync of a file overwrites the Mac's copy. The first sync uploads the whole worktree and can take minutes for a large repository; later syncs upload only changed files.
 
 ```bash
 tuist sandbox sync <id> --json                 # "root" is the repository's path on the Mac

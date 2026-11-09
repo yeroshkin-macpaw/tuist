@@ -32,10 +32,12 @@
   with a trailing `/` (created), otherwise to that path, replacing it. Both directions move a gzipped tar with
   `COPYFILE_DISABLE=1` and place it with a rename from a scratch directory next
   to the destination.
-- `sync` (`SandboxSync`) mirrors the Git worktree one way: the sandbox keeps the
-  base commit (merge-base with the upstream, else `origin/HEAD`) under
-  `refs/tuist/bases/<sha>`, fetched anonymously or uploaded as a `git archive`
-  for private repositories, then applies a binary patch with a two-tree
-  `read-tree -m -u` so unchanged files and ignored build outputs stay. A patch
-  the sandbox already has is not uploaded again. A scratch index keeps the
-  user's staging area untouched.
+- `sync` (`SandboxSync`) mirrors the worktree's non-ignored files one way, file
+  by file, like Amp's Mac satellites; the sandbox needs no Git or repository
+  access. Git only lists and hashes files locally, through a scratch index under
+  `<git-dir>/tuist-sync` so the user's staging area is untouched. Each sync's
+  manifest is saved there by its hash, and the sandbox records the hash it holds
+  under `$HOME/.tuist-sync/`, so the next sync uploads only files whose content
+  or mode changed, plus the full path list the sandbox uses to delete dropped
+  files. Ignored files the sandbox created stay. When the sandbox's hash is
+  unknown locally or changes mid-sync, everything is sent.

@@ -141,7 +141,7 @@ Claude Code sessions that run on Linux, such as cloud sessions in an Anthropic-h
    ```
 
 2. Create an <.localized_link href="/guides/server/authentication#account-tokens">account token</.localized_link> with the `account:sandboxes:write` scope, and add it to the environment's [environment variables](https://code.claude.com/docs/en/cloud-environments#set-environment-variables) as `TUIST_TOKEN`. Everyone who uses the environment can read it, so give it no other scope.
-3. Let the environment reach Tuist. Anthropic's default **Trusted** network access doesn't include `tuist.dev`, so pick **Custom**, keep the default domains, and add `tuist.dev` to **Allowed domains**. The Mac fetches the repository from GitHub itself; the session only talks to `tuist.dev`.
+3. Let the environment reach Tuist. Anthropic's default **Trusted** network access doesn't include `tuist.dev`, so pick **Custom**, keep the default domains, and add `tuist.dev` to **Allowed domains**. The session uploads its files to the Mac through `tuist.dev`, so it needs no other domain.
 4. Optionally, raise the time a command can run. Claude Code moves a command that reaches the Bash timeout to the background and stops it 30 minutes later, and the skill runs long builds in the background. For longer builds, set `BASH_DEFAULT_TIMEOUT_MS` and `BASH_MAX_TIMEOUT_MS` in the environment's variables, in milliseconds.
 
 The skill installs the Tuist CLI into the session when it isn't there. To skip that step in every session, install it in the environment's [setup script](https://code.claude.com/docs/en/cloud-environments#setup-scripts), for example with `curl -fsSL https://github.com/tuist/tuist/releases/download/<version>/tuist-linux-x86_64.tar.gz | tar -xz -C /usr/local/bin tuist`.

@@ -220,8 +220,10 @@ struct SandboxCommandService {
             )
         }
         try output(result, options: options) { result in
-            let size = ByteCountFormatter.string(fromByteCount: Int64(result.patchBytes), countStyle: .file)
-            return "Synced \(size) of changes against \(result.base.prefix(12)) to \(result.root)."
+            guard result.uploaded else { return "\(result.root) is already up to date." }
+            let size = ByteCountFormatter.string(fromByteCount: Int64(result.bytes), countStyle: .file)
+            let files = result.changedFiles == 1 ? "1 changed file" : "\(result.changedFiles) changed files"
+            return "Synced \(files) (\(size)) to \(result.root)."
         }
     }
 

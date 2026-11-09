@@ -57,7 +57,7 @@ The command runs with `bash -l` in the sandbox, which resumes first if it's paus
 | List sandboxes | `tuist sandbox list` |
 | Show one | `tuist sandbox show <id>` |
 | Pause or resume | `tuist sandbox pause <id>`, `tuist sandbox resume <id>` |
-| Mirror the local Git worktree into it | `tuist sandbox sync <id>` |
+| Mirror the local Git worktree's files into it | `tuist sandbox sync <id>` |
 | Copy files out or in | `tuist sandbox cp <id>:<path> <local-path>`, `tuist sandbox cp <local-path> <id>:<path>` |
 | Delete | `tuist sandbox delete <id> --yes` |
 | See usage | `tuist sandbox analytics` |
