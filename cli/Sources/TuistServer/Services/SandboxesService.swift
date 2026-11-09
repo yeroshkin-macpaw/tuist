@@ -7,7 +7,6 @@ public typealias SandboxesPage = Operations.listSandboxes.Output.Ok.Body.jsonPay
 public typealias ServerSandbox = Components.Schemas.Sandbox
 public typealias ServerSandboxPlatform = Operations.createSandbox.Input.Body.jsonPayload.platformPayload
 public typealias SandboxAnalytics = Operations.getSandboxAnalytics.Output.Ok.Body.jsonPayload
-public typealias SandboxExecResult = Components.Schemas.SandboxExecResult
 public typealias ServerSandboxCommand = Components.Schemas.SandboxCommand
 public typealias ServerSandboxCommandLogLine = Components.Schemas.SandboxCommandLogLine
 
@@ -42,13 +41,6 @@ public protocol SandboxesServicing: Sendable {
         memoryMB: Int?,
         workspaceGB: Int?
     ) async throws -> ServerSandbox
-    func execSandboxCommand(
-        accountHandle: String,
-        serverURL: URL,
-        sandboxID: String,
-        command: String,
-        timeoutMs: Int?
-    ) async throws -> SandboxExecResult
     func transitionSandbox(
         _ transition: SandboxTransition,
         accountHandle: String,
@@ -244,32 +236,6 @@ public struct SandboxesService: SandboxesServicing {
         case let .created(value): return try Self.convert(value.body.json)
         case let .badRequest(value): throw SandboxesServiceError.refused(try value.body.json.message)
         case let .forbidden(value): throw SandboxesServiceError.refused(try value.body.json.message)
-        case let .conflict(value): throw SandboxesServiceError.refused(try value.body.json.message)
-        case let .badGateway(value): throw SandboxesServiceError.refused(try value.body.json.message)
-        case let .serviceUnavailable(value): throw SandboxesServiceError.refused(try value.body.json.message)
-        case let .gatewayTimeout(value): throw SandboxesServiceError.refused(try value.body.json.message)
-        case .tooManyRequests: throw SandboxesServiceError.limited
-        case let .undocumented(statusCode, payload): throw await SandboxesServiceError.undocumented(statusCode, payload)
-        }
-    }
-
-    public func execSandboxCommand(
-        accountHandle: String,
-        serverURL: URL,
-        sandboxID: String,
-        command: String,
-        timeoutMs: Int?
-    ) async throws -> SandboxExecResult {
-        let response = try await SandboxesServiceError.send {
-            try await Client.authenticated(serverURL: serverURL).execSandboxCommand(.init(
-                path: .init(account_handle: accountHandle, sandbox_id: sandboxID),
-                body: .json(.init(command: command, timeout_ms: timeoutMs))
-            ))
-        }
-        switch response {
-        case let .ok(value): return try Self.convert(value.body.json)
-        case let .forbidden(value): throw SandboxesServiceError.refused(try value.body.json.message)
-        case let .notFound(value): throw SandboxesServiceError.refused(try value.body.json.message)
         case let .conflict(value): throw SandboxesServiceError.refused(try value.body.json.message)
         case let .badGateway(value): throw SandboxesServiceError.refused(try value.body.json.message)
         case let .serviceUnavailable(value): throw SandboxesServiceError.refused(try value.body.json.message)

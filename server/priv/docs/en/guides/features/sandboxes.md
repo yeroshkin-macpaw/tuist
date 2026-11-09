@@ -48,7 +48,7 @@ Omit `--platform` for Linux. Pass `--vcpus` with `--memory-gb` for a larger [sha
 tuist sandbox exec <sandbox-id> -- xcodebuild -version
 ```
 
-The command runs with `bash -lc` in the sandbox, which resumes first if it's paused, and `tuist` exits with the command's status.
+The command runs with `bash -l` in the sandbox, which resumes first if it's paused. `tuist` streams its output however long it runs and exits with the command's status; Ctrl-C cancels it in the sandbox. Pass `--cwd`, `--env NAME=VALUE` and `--timeout` (up to six hours) as needed.
 
 ### Common tasks {#cli-tasks}
 
@@ -57,6 +57,8 @@ The command runs with `bash -lc` in the sandbox, which resumes first if it's pau
 | List sandboxes | `tuist sandbox list` |
 | Show one | `tuist sandbox show <id>` |
 | Pause or resume | `tuist sandbox pause <id>`, `tuist sandbox resume <id>` |
+| Mirror the local Git worktree into it | `tuist sandbox sync <id>` |
+| Copy files out or in | `tuist sandbox cp <id>:<path> <local-path>`, `tuist sandbox cp <local-path> <id>:<path>` |
 | Delete | `tuist sandbox delete <id> --yes` |
 | See usage | `tuist sandbox analytics` |
 

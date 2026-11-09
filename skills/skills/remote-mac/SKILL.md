@@ -39,22 +39,22 @@ Before every command, mirror the worktree. Sync is one-way: edit files locally, 
 tuist sandbox sync <id> --json                 # "root" is the repository's path on the Mac
 ```
 
-Run commands from that root. `run` streams the output however long the command takes, waits when the Mac's host is busy with CI, and exits with the command's status:
+Run commands from that root. `exec` streams the output however long the command takes, waits when the Mac's host is busy with CI, and exits with the command's status:
 
 ```bash
-tuist sandbox run <id> --cwd <root> -- 'xcodebuild -scheme App -destination "platform=iOS Simulator,name=iPhone 17 Pro" build'
-tuist sandbox run <id> --cwd <root> -- 'xcrun simctl list devices available'
+tuist sandbox exec <id> --cwd <root> -- 'xcodebuild -scheme App -destination "platform=iOS Simulator,name=iPhone 17 Pro" build'
+tuist sandbox exec <id> --cwd <root> -- 'xcrun simctl list devices available'
 ```
 
 - Pipe long build output through `tail` or `xcbeautify` on the Mac to keep it short.
 - Pass secrets with `--env NAME=VALUE`; they are never stored.
 - `--timeout <seconds>` defaults to one hour. Exit code 124 means the command timed out.
 
-Copy results back with `download`, such as a built app, an `.xcresult` bundle or a screenshot:
+Copy results back with `cp`, writing the Mac's side as `<id>:<path>`, such as a built app, an `.xcresult` bundle or a screenshot:
 
 ```bash
-tuist sandbox run <id> --cwd <root> -- 'xcrun simctl io booted screenshot /tmp/screen.png'
-tuist sandbox download <id> /tmp/screen.png -o .tuist-mac
+tuist sandbox exec <id> --cwd <root> -- 'xcrun simctl io booted screenshot /tmp/screen.png'
+tuist sandbox cp <id>:/tmp/screen.png .tuist-mac/
 ```
 
 Then read `.tuist-mac/screen.png` to look at it. Add the output directory to `.gitignore` or remove it afterwards so it is not mirrored back.
@@ -69,10 +69,10 @@ If a Mac is left behind, Tuist pauses it when it is idle and deletes it after 14
 
 ## Long commands
 
-The first sync of a large repository, builds and test runs can take longer than a shell tool waits. Stopping `tuist sandbox run` locally (Ctrl-C, SIGTERM, or a tool timeout that kills it) cancels the command on the Mac, so start long commands in the background and read their output while they run:
+The first sync of a large repository, builds and test runs can take longer than a shell tool waits. Stopping `tuist sandbox exec` locally (Ctrl-C, SIGTERM, or a tool timeout that kills it) cancels the command on the Mac, so start long commands in the background and read their output while they run:
 
 - In Claude Code, run them with the Bash tool's `run_in_background` and check the output as it progresses. A foreground command that reaches the Bash timeout moves to the background and is stopped 30 minutes later, so do not start one that may need longer in the foreground. For longer builds, the user can raise `BASH_DEFAULT_TIMEOUT_MS` and `BASH_MAX_TIMEOUT_MS` in the environment.
-- Elsewhere, redirect to a log file, such as `tuist sandbox run <id> --cwd <root> -- '…' > /tmp/build.log 2>&1 &`, then read the log until the process exits. Its exit status is the command's.
+- Elsewhere, redirect to a log file, such as `tuist sandbox exec <id> --cwd <root> -- '…' > /tmp/build.log 2>&1 &`, then read the log until the process exits. Its exit status is the command's.
 
 ## Simulator tips
 

@@ -147,36 +147,10 @@ struct SandboxCommandService {
         try output(sandbox, options: options) { SandboxOutput.details($0) }
     }
 
-    /// Prints the command's output and exits with its status, so scripts can rely on it as on a local command.
-    func exec(options: SandboxOptions.Values, sandboxID: String, command: String, timeoutMs: Int?) async throws {
-        let (accountHandle, serverURL) = try await resolve(options)
-        // Outside a terminal Noora prints progress as lines on stdout, which would mix with the command's output.
-        let interactive = isatty(STDOUT_FILENO) == 1
-        let result = try await step("Running command...", done: "Command finished", options: options, show: interactive) {
-            try await sandboxesService.execSandboxCommand(
-                accountHandle: accountHandle,
-                serverURL: serverURL,
-                sandboxID: sandboxID,
-                command: command,
-                timeoutMs: timeoutMs
-            )
-        }
-        if options.json {
-            try Noora.current.json(result)
-        } else {
-            FileHandle.standardOutput.write(Data(result.stdout.utf8))
-            FileHandle.standardError.write(Data(result.stderr.utf8))
-        }
-        switch result.exit_code {
-        case 0?: return
-        case let exitCode?: throw ExitCode(Int32(clamping: exitCode))
-        case nil: throw SandboxCommandError.commandKilled
-        }
-    }
-
-    /// Streams the command's output as it runs, however long that is, and exits with its status. An interrupt
-    /// cancels the command in the sandbox.
-    func run(
+    /// Streams the command's output as it runs, however long that is, and exits with its status, so scripts can rely
+    /// on it as on a local command. An interrupt cancels the command in the sandbox. With `--json`, the output is
+    /// printed as one object once the command ends.
+    func exec(
         options: SandboxOptions.Values,
         sandboxID: String,
         command: String,
@@ -188,8 +162,22 @@ struct SandboxCommandService {
         let started = try await remote.start(command, cwd: cwd, environment: environment, timeoutMs: timeoutMs)
         let signals = Self.onInterrupt { try? await remote.cancel(started.id) }
         defer { signals.forEach { $0.cancel() } }
+        var stdout = ""
+        var stderr = ""
         let exit = try await remote.follow(started.id) { isStandardError, data in
-            (isStandardError ? FileHandle.standardError : FileHandle.standardOutput).write(Data(data.utf8))
+            if options.json {
+                if isStandardError { stderr += data } else { stdout += data }
+            } else {
+                (isStandardError ? FileHandle.standardError : FileHandle.standardOutput).write(Data(data.utf8))
+            }
+        }
+        if options.json {
+            try Noora.current.json(SandboxExecOutput(
+                status: exit.status,
+                exitCode: exit.exitCode,
+                stdout: stdout,
+                stderr: stderr
+            ))
         }
         switch (exit.status, exit.exitCode) {
         case (_, 0?): return
@@ -199,6 +187,18 @@ struct SandboxCommandService {
             throw ExitCode(124)
         case ("cancelled", nil): throw ExitCode(130)
         case let (status, nil): throw SandboxCommandError.commandEnded(status)
+        }
+    }
+
+    private struct SandboxExecOutput: Codable {
+        let status: String
+        let exitCode: Int?
+        let stdout: String
+        let stderr: String
+
+        enum CodingKeys: String, CodingKey {
+            case status, stdout, stderr
+            case exitCode = "exit_code"
         }
     }
 
@@ -225,46 +225,36 @@ struct SandboxCommandService {
         }
     }
 
-    /// Copies a file or directory out of the sandbox into `outputDirectory` (default: the working directory).
-    func download(options: SandboxOptions.Values, sandboxID: String, remotePath: String, outputDirectory: String?)
-        async throws
-    {
-        let output = try await Environment.current.pathRelativeToWorkingDirectory(outputDirectory)
-        let remote = try await remote(options, sandboxID: sandboxID)
-        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("tuist-sandbox-download-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: scratch) }
-        let archive = scratch.appendingPathComponent("download.tar.gz")
-        FileManager.default.createFile(atPath: archive.path, contents: nil)
-        let handle = try FileHandle(forWritingTo: archive)
-        defer { try? handle.close() }
+    /// Copies a file or directory out of the sandbox to `localPath`, or into it when that is an existing directory or
+    /// ends with `/`.
+    func download(options: SandboxOptions.Values, sandboxID: String, remotePath: String, localPath: String) async throws {
+        let requested = try await Environment.current.pathRelativeToWorkingDirectory(localPath)
+        let copy = SandboxCopy(remote: try await remote(options, sandboxID: sandboxID), commandRunner: commandRunner)
+        let path = try await copy.download(remotePath, to: requested, into: localPath.hasSuffix("/"))
+        try copied(remotePath, to: path.pathString, options: options)
+    }
 
-        let started = try await remote.start(
-            #"set -eo pipefail; cd "$(dirname "$TUIST_PATH")"; tar -czf - "$(basename "$TUIST_PATH")" | base64"#,
-            environment: ["TUIST_PATH": remotePath],
-            timeoutMs: 60 * 60 * 1000
-        )
-        var decoder = Base64StreamDecoder()
-        var stderr = ""
-        let exit = try await remote.follow(started.id) { isStandardError, data in
-            if isStandardError { stderr += data } else { try handle.write(contentsOf: decoder.decode(data)) }
+    /// Copies a local file or directory into the sandbox at `remotePath`, or into it when that is an existing
+    /// directory there or ends with `/`.
+    func upload(options: SandboxOptions.Values, sandboxID: String, localPath: String, remotePath: String) async throws {
+        let source = try await Environment.current.pathRelativeToWorkingDirectory(localPath)
+        guard FileManager.default.fileExists(atPath: source.pathString) else {
+            throw SandboxCommandError.stepFailed("Copying \(localPath) to the sandbox", "\(source.pathString) does not exist.")
         }
-        guard exit.exitCode == 0 else {
-            throw SandboxCommandError.stepFailed("Downloading \(remotePath)", stderr)
-        }
-        try handle.write(contentsOf: decoder.finish())
-        try handle.close()
-        try FileManager.default.createDirectory(atPath: output.pathString, withIntermediateDirectories: true)
-        try await commandRunner.run(arguments: ["tar", "-xzf", archive.path, "-C", output.pathString]).awaitCompletion()
+        let copy = SandboxCopy(remote: try await remote(options, sandboxID: sandboxID), commandRunner: commandRunner)
+        let path = try await copy.upload(source, to: remotePath)
+        try copied(source.pathString, to: path, options: options)
+    }
+
+    private func copied(_ source: String, to path: String, options: SandboxOptions.Values) throws {
         if options.json {
-            try Noora.current
-                .json(SandboxDownloaded(path: output.appending(component: (remotePath as NSString).lastPathComponent).pathString))
+            try Noora.current.json(SandboxCopied(path: path))
         } else {
-            Noora.current.passthrough("Downloaded \(remotePath) into \(output.pathString).\n")
+            Noora.current.passthrough("Copied \(source) to \(path).\n")
         }
     }
 
-    private struct SandboxDownloaded: Codable {
+    private struct SandboxCopied: Codable {
         let path: String
     }
 
