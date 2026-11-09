@@ -129,3 +129,21 @@ Developers pick the environment, and with it the platform, when they start a clo
   ```
 
 Sessions in these environments use your organization's Claude Code usage as usual, and their sandboxes count toward your Tuist account.
+
+## Use a Mac from any Claude Code session {#remote-mac}
+
+Claude Code sessions that run on Linux, such as cloud sessions in an Anthropic-hosted environment, can still build and test Apple-platform code. The `remote-mac` <.localized_link href="/guides/features/agentic-coding/skills">skill</.localized_link> lets Claude create a Tuist macOS sandbox, mirror the session's Git worktree into it, run `xcodebuild` and simulators there, and copy results such as screenshots back, while it keeps editing files in its own session. Unlike a **Tuist macOS** environment, nothing needs connecting and the session keeps its own environment.
+
+1. Add the skill to the repository and commit it, because cloud sessions load the repository's skills:
+
+   ```bash
+   npx skills add tuist/agent-skills --skill remote-mac -a claude-code
+   ```
+
+2. Create an <.localized_link href="/guides/server/authentication#account-tokens">account token</.localized_link> with the `account:sandboxes:use` scope, and add it to the environment's [environment variables](https://code.claude.com/docs/en/cloud-environments#set-environment-variables) as `TUIST_TOKEN`. Everyone who uses the environment can read it, so give it no other scope.
+3. Let the environment reach Tuist. Anthropic's default **Trusted** network access doesn't include `tuist.dev`, so pick **Custom**, keep the default domains, and add `tuist.dev` to **Allowed domains**. The Mac fetches the repository from GitHub itself; the session only talks to `tuist.dev`.
+4. Optionally, raise the time a command can run. Claude Code moves a command that reaches the Bash timeout to the background and stops it 30 minutes later, and the skill runs long builds in the background. For longer builds, set `BASH_DEFAULT_TIMEOUT_MS` and `BASH_MAX_TIMEOUT_MS` in the environment's variables, in milliseconds.
+
+The skill installs the Tuist CLI into the session when it isn't there. To skip that step in every session, install it in the environment's [setup script](https://code.claude.com/docs/en/cloud-environments#setup-scripts), for example with `curl -fsSL https://github.com/tuist/tuist/releases/download/<version>/tuist-linux-x86_64.tar.gz | tar -xz -C /usr/local/bin tuist`.
+
+Each session gets its own Mac, which Claude deletes when the task is done. The skill also deletes it when the session ends, and a Mac left behind pauses when idle and is deleted after 14 days paused. Macs created this way count toward your Tuist account like any other sandbox.
