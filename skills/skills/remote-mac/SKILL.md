@@ -18,7 +18,7 @@ The scripts below are in this skill's `scripts` directory (`${CLAUDE_SKILL_DIR}/
 
 1. Run `${CLAUDE_SKILL_DIR}/scripts/install-tuist.sh`. It does nothing when the `tuist` on PATH has `tuist sandbox sync`; otherwise it installs the newest Linux CLI into `~/.local/bin` (`TUIST_VERSION` picks a release). If `~/.local/bin` is not on PATH, prepend it: `export PATH="$HOME/.local/bin:$PATH"`.
 2. Authenticate with one of:
-   - `TUIST_TOKEN` set to an account token with the `account:sandboxes:use` scope (created in the account's token settings). Prefer this in non-interactive environments. In a Claude Code cloud environment, the user sets it in the environment's variables.
+   - `TUIST_TOKEN` set to an account token with the `account:sandboxes:write` scope (created in the account's token settings). Prefer this in non-interactive environments. In a Claude Code cloud environment, the user sets it in the environment's variables.
    - `tuist auth login`, which needs a browser; ask the user to run it.
 3. Pick the account. The Linux CLI does not read `Tuist.swift`, so pass `--account <handle>` to every `tuist sandbox` command unless the repository has a `tuist.toml` with `project = "<account>/<project>"`. Most examples below leave it out.
 4. Check access with `tuist sandbox list --account <handle>`. If the request cannot reach `tuist.dev` (a connection error, or a 403 from a proxy rather than from Tuist), the sandbox restricts network access: ask the user to allow `tuist.dev`. In a Claude Code cloud environment, that is **Custom** network access with `tuist.dev` in **Allowed domains** and the default domains kept.
